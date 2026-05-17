@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
@@ -26,7 +27,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late NoteService _noteService;
   bool _isSearching = false;
   String _searchQuery = '';
-  int _selectedTab = 0; // 0: notes, 1: archives, 2: favoris
+  int _selectedTab = 0;
   late TabController _tabController;
   List<Folder> _folders = [];
   String? _selectedFolderId;
@@ -43,13 +44,56 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _noteService = NoteService(prefs);
     await _loadNotes();
     await _loadFolders();
+    await _cleanDuplicateNotes(); // Nettoyer les doublons
+  }
+
+  // Fonction pour nettoyer les notes en double
+  Future<void> _cleanDuplicateNotes() async {
+    final notes = await _noteService.getNotes();
+    
+    // Grouper par contenu pour trouver les doublons
+    final Map<String, List<Note>> groupedByContent = {};
+    for (var note in notes) {
+      // Créer une clé unique basée sur le titre et le contenu
+      final key = '${note.title}|${note.content}';
+      if (!groupedByContent.containsKey(key)) {
+        groupedByContent[key] = [];
+      }
+      groupedByContent[key]!.add(note);
+    }
+    
+    bool hasDuplicates = false;
+    
+    // Supprimer les doublons (garder la plus récente)
+    for (var group in groupedByContent.values) {
+      if (group.length > 1) {
+        hasDuplicates = true;
+        // Trier par date de modification (la plus récente d'abord)
+        group.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+        // Garder la première, supprimer les autres
+        for (var i = 1; i < group.length; i++) {
+          await _noteService.deleteNote(group[i].id);
+          print('Note supprimée: ${group[i].title}');
+        }
+      }
+    }
+    
+    if (hasDuplicates) {
+      print('✅ Nettoyage des doublons terminé');
+      await _loadNotes(); // Recharger les notes
+    }
   }
 
   Future<void> _loadFolders() async {
-    // Charger les dossiers depuis SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final foldersJson = prefs.getStringList('folders') ?? [];
-    _folders = foldersJson.map((json) => Folder.fromJson(jsonDecode(json))).toList();
+    _folders = foldersJson.map((json) => Folder.fromJson(jsonDecode(json) as Map<String, dynamic>)).toList();
+    setState(() {});
+  }
+
+  Future<void> _saveFolders() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('folders', _folders.map((f) => jsonEncode(f.toJson())).toList());
   }
 
   Future<void> _loadNotes() async {
@@ -84,16 +128,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         note.tags.any((tag) => tag.toLowerCase().contains(_searchQuery.toLowerCase()))
       ).toList();
     }
+    setState(() {});
   }
 
   void _filterNotes(String query) {
-    setState(() {
-      _searchQuery = query;
-      _applyFilter();
-    });
+    _searchQuery = query;
+    _applyFilter();
   }
 
-  void _archiveNote(Note note) async {
+  Future<void> _archiveNote(Note note) async {
     final updatedNote = Note(
       id: note.id,
       title: note.title,
@@ -117,12 +160,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     await _noteService.updateNote(updatedNote);
     await _loadNotes();
     
-    if (await Vibration.hasVibrator()) {
+    final hasVibrator = await Vibration.hasVibrator() ?? false;
+    if (hasVibrator) {
       Vibration.vibrate(duration: 30);
     }
   }
 
-  void _toggleFavorite(Note note) async {
+  Future<void> _toggleFavorite(Note note) async {
     final updatedNote = Note(
       id: note.id,
       title: note.title,
@@ -146,14 +190,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     await _noteService.updateNote(updatedNote);
     await _loadNotes();
     
-    if (await Vibration.hasVibrator()) {
+    final hasVibrator = await Vibration.hasVibrator() ?? false;
+    if (hasVibrator) {
       Vibration.vibrate(duration: 20);
     }
   }
 
   void _createFolder() async {
     final nameController = TextEditingController();
-    final colorController = TextEditingController();
+    int selectedColor = 0xFF6366F1;
     
     await showDialog(
       context: context,
@@ -166,10 +211,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               controller: nameController,
               decoration: InputDecoration(hintText: 'Nom du dossier'),
             ),
+            SizedBox(height: 16),
+            Text('Couleur'),
             SizedBox(height: 8),
-            TextField(
-              controller: colorController,
-              decoration: InputDecoration(hintText: 'Couleur (hex: #6366F1)'),
+            Wrap(
+              spacing: 8,
+              children: [
+                Colors.blue, Colors.red, Colors.green, Colors.orange,
+                Colors.purple, Colors.pink, Colors.teal, Colors.indigo,
+              ].map((color) => GestureDetector(
+                onTap: () => selectedColor = color.value,
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: color,
+                    shape: BoxShape.circle,
+                    border: Border.all(color: selectedColor == color.value ? Colors.white : Colors.transparent, width: 2),
+                  ),
+                ),
+              )).toList(),
             ),
           ],
         ),
@@ -180,11 +241,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               final newFolder = Folder(
                 id: DateTime.now().millisecondsSinceEpoch.toString(),
                 name: nameController.text,
-                color: int.parse('0xFF${colorController.text.replaceAll('#', '')}'),
+                color: selectedColor,
               );
               _folders.add(newFolder);
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setStringList('folders', _folders.map((f) => jsonEncode(f.toJson())).toList());
+              await _saveFolders();
               setState(() {});
               Navigator.pop(context);
             },
@@ -244,7 +304,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ],
               ),
         actions: [
-          // Bouton dossiers
           PopupMenuButton<String>(
             icon: Icon(Icons.folder_outlined),
             onSelected: (value) {
@@ -277,7 +336,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         bottom: TabBar(
           controller: _tabController,
           onTap: (index) {
-            setState(() => _selectedTab = index);
+            _selectedTab = index;
             _applyFilter();
           },
           tabs: [
@@ -338,7 +397,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         child: FloatingActionButton(
           onPressed: () async {
-            if (await Vibration.hasVibrator()) Vibration.vibrate(duration: 20);
+            final hasVibrator = await Vibration.hasVibrator() ?? false;
+            if (hasVibrator) Vibration.vibrate(duration: 20);
             final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => NoteEditorScreen(noteService: _noteService)));
             if (result == true) await _loadNotes();
           },

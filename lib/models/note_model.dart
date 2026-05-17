@@ -1,7 +1,9 @@
+import 'dart:convert';
+
 class Note {
   final String id;
   final String title;
-  final String content;  // Contenu HTML pour formatage
+  final String content;
   final DateTime createdAt;
   final DateTime updatedAt;
   final int backgroundColor;
@@ -11,12 +13,12 @@ class Note {
   final bool isFavorite;
   final List<String> tags;
   final String? folderId;
-  final String? imagePath;      // Image de fond personnalisée
-  final List<String> attachments; // Images, audios, fichiers
-  final String? reminderDate;    // Date de rappel
-  final bool isLocked;           // Note privée
-  final String? fontFamily;      // Police personnalisée
-  final double fontSize;         // Taille du texte
+  final String? imagePath;
+  final List<String> attachments;
+  final String? reminderDate;
+  final bool isLocked;
+  final String? fontFamily;
+  final double fontSize;
 
   Note({
     required this.id,
@@ -90,27 +92,23 @@ class Folder {
   final String id;
   final String name;
   final int color;
-  final int icon;
 
   Folder({
     required this.id,
     required this.name,
     this.color = 0xFF6366F1,
-    this.icon = Icons.folder.codePoint,
   });
 
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'color': color,
-    'icon': icon,
   };
 
   factory Folder.fromJson(Map<String, dynamic> json) => Folder(
     id: json['id'],
     name: json['name'],
     color: json['color'],
-    icon: json['icon'],
   );
 }
 

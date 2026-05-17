@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
@@ -23,42 +24,36 @@ class NoteCard extends StatelessWidget {
   }) : super(key: key);
 
   Future<void> _deleteNote(BuildContext context) async {
-    // Sauvegarder la note pour undo
     final deletedNote = note;
-    
-    // Supprimer la note
     await noteService.deleteNote(note.id);
     
-    // Feedback haptique
-    if (await Vibration.hasVibrator()) {
+    final hasVibrator = await Vibration.hasVibrator() ?? false;
+    if (hasVibrator) {
       Vibration.vibrate(duration: 50);
     }
     
-    // Animation de disparition
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Note supprimée'),
-        duration: Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        action: SnackBarAction(
-          label: 'ANNULER',
-          textColor: Colors.orange,
-          onPressed: () async {
-            // Restaurer la note
-            await noteService.addNote(deletedNote);
-            onDelete();
-            
-            // Feedback
-            if (await Vibration.hasVibrator()) {
-              Vibration.vibrate(duration: 30);
-            }
-          },
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Note supprimée'),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          action: SnackBarAction(
+            label: 'ANNULER',
+            textColor: Colors.orange,
+            onPressed: () async {
+              await noteService.addNote(deletedNote);
+              onDelete();
+              final hasVibrator2 = await Vibration.hasVibrator() ?? false;
+              if (hasVibrator2) {
+                Vibration.vibrate(duration: 30);
+              }
+            },
+          ),
         ),
-      ),
-    );
-    
-    // Recharger la liste
+      );
+    }
     onDelete();
   }
 
@@ -79,11 +74,10 @@ class NoteCard extends StatelessWidget {
       onDismissed: (direction) => _deleteNote(context),
       child: GestureDetector(
         onTap: () async {
-          // Animation haptique
-          if (await Vibration.hasVibrator()) {
+          final hasVibrator = await Vibration.hasVibrator() ?? false;
+          if (hasVibrator) {
             Vibration.vibrate(duration: 10);
           }
-          
           final result = await Navigator.push(
             context,
             MaterialPageRoute(
@@ -119,7 +113,6 @@ class NoteCard extends StatelessWidget {
             ),
             child: Stack(
               children: [
-                // Overlay pour l'image de fond
                 if (note.imagePath != null)
                   Container(
                     decoration: BoxDecoration(
@@ -235,7 +228,7 @@ class NoteCard extends StatelessWidget {
                       ),
                       SizedBox(height: 6),
                       Text(
-                        note.content.replaceAll(RegExp(r'<[^>]*>'), ''),
+                        note.content,
                         style: TextStyle(
                           fontSize: note.fontSize * 0.75,
                           color: Color(note.textColor).withOpacity(0.7),
